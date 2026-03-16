@@ -7,7 +7,12 @@
         "requestBodies": {},
         "responses": {},
         "schemas": {},
-        "securitySchemes": {}
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer"
+            }
+        }
     },
     "info": {
         "title": "backend",
@@ -17,53 +22,10 @@
         },
         "contact": {}
     },
-    "paths": {
-        "/adullam/adullam": {
-            "get": {
-                "operationId": "GetUsers",
-                "responses": {
-                    "200": {
-                        "description": "Ok",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "data": {
-                                            "properties": {
-                                                "message": {
-                                                    "type": "string"
-                                                }
-                                            },
-                                            "required": [
-                                                "message"
-                                            ],
-                                            "type": "object"
-                                        },
-                                        "message": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "required": [
-                                        "data",
-                                        "message"
-                                    ],
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    }
-                },
-                "tags": [
-                    "Adullam"
-                ],
-                "security": [],
-                "parameters": []
-            }
-        }
-    },
+    "paths": {},
     "servers": [
         {
-            "url": "/"
+            "url": "/api"
         }
     ]
 }

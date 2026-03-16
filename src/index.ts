@@ -4,26 +4,79 @@ import cors from "cors";
 import twilio from "twilio";
 const MessagingResponse = twilio.twiml.MessagingResponse;
 import Groq from "groq-sdk";
+import swaggerUi from "swagger-ui-express";
+import swaggerDocument from "../dist/swagger.json"; // Make sure this path is correct
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// ===== CORS CONFIGURATION =====
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:4000',
+  'https://adullamhub.com',
+  'https://www.adullamhub.com',
+  process.env.RENDER_URL || '',
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, postman, twilio)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      console.log(`❌ Blocked origin: ${origin}`);
+      return callback(new Error('CORS not allowed'), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
+}));
+
+// Handle preflight requests
+app.options('*', cors());
+
+// ===== MIDDLEWARE =====
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.url}`);
+  next();
+});
+
+// ===== SWAGGER DOCS =====
+// Serve swagger.json statically
+app.use('/api-docs/swagger.json', (req, res) => {
+  res.sendFile(__dirname + '/swagger.json');
+});
+
+// Setup swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: "Adullam Hub WhatsApp Bot API",
+  swaggerOptions: {
+    persistAuthorization: true,
+    displayRequestDuration: true,
+  }
+}));
+
+console.log(`📚 Swagger UI available at /api-docs`);
 
 // Initialize Groq
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
-// Initialize Twilio client (for sending proactive messages)
+// Initialize Twilio client
 const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN,
+  process.env.TWILIO_ACCOUNT_SID!,
+  process.env.TWILIO_AUTH_TOKEN!,
 );
 
-// In-memory conversation history (replace with Redis in production)
+// In-memory conversation history
 interface Conversation {
   phoneNumber: string;
   messages: Array<{
@@ -36,7 +89,7 @@ interface Conversation {
 
 const conversations: Map<string, Conversation> = new Map();
 
-// Enhanced mentors array with more details
+// Enhanced mentors array
 const mentors = [
   { 
     id: 1, 
@@ -61,7 +114,7 @@ const mentors = [
   },
 ];
 
-// System prompt with mentor information
+// System prompt
 const SYSTEM_PROMPT = `You are a helpful WhatsApp assistant for Adullam Hub, a spiritual community.
 You are friendly, concise, and professional. Keep responses under 3 sentences unless the user asks for detailed information.
 
@@ -74,19 +127,7 @@ When users ask about mentors, spiritual guidance, or counseling:
 3. If they mention an area of interest (teens, marriage, evangelism), suggest relevant mentors
 4. Always offer to connect them with the appropriate mentor
 
-For example:
-- "I need guidance" → Suggest relevant mentors based on their situation
-- "Tell me about Pastor Adebisis" → Share his details
-- "I need marriage counseling" → Suggest Femi Lazarus
-- "Who are your mentors?" → List all mentors
-
 Remember to be warm, welcoming, and always point people to spiritual growth.
-
-You help with:
-- Answering questions about Adullam Hub services
-- Providing information about mentors and their areas
-- Engaging in friendly conversation
-- Directing users to appropriate spiritual resources
 
 If you don't know something, be honest and offer to connect them with a human.`;
 
@@ -139,7 +180,7 @@ function searchMentors(query: string): string {
     }
   }
   
-  return ""; // No matches found
+  return "";
 }
 
 /**
@@ -160,7 +201,6 @@ async function generateAIResponse(
     if (isAboutMentors) {
       const mentorResponse = searchMentors(userMessage);
       if (mentorResponse) {
-        // Store in conversation history
         let conversation = conversations.get(phoneNumber);
         if (!conversation) {
           conversation = {
@@ -187,7 +227,7 @@ async function generateAIResponse(
       }
     }
 
-    // Get or create conversation history for AI response
+    // Get or create conversation history
     let conversation = conversations.get(phoneNumber);
 
     if (!conversation) {
@@ -199,17 +239,14 @@ async function generateAIResponse(
       conversations.set(phoneNumber, conversation);
     }
 
-    // Add user message to history
     conversation.messages.push({
       role: "user",
       content: userMessage,
       timestamp: new Date(),
     });
 
-    // Keep only last 10 messages for context
     const recentMessages = conversation.messages.slice(-10);
 
-    // Prepare messages for Groq
     const groqMessages = [
       { role: "system", content: SYSTEM_PROMPT },
       ...recentMessages.map((msg) => ({
@@ -220,21 +257,18 @@ async function generateAIResponse(
 
     console.log(`🤔 Generating AI response for ${phoneNumber}...`);
 
-    // Call Groq API
     const completion = await groq.chat.completions.create({
       messages: groqMessages,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       temperature: 0.7,
-      max_tokens: 500, // Increased for mentor responses
+      max_tokens: 500,
       top_p: 1,
       stream: false,
     });
 
-    const aiResponse =
-      completion.choices[0]?.message?.content ||
+    const aiResponse = completion.choices[0]?.message?.content ||
       "I'm sorry, I couldn't generate a response. Please try again.";
 
-    // Add AI response to history
     conversation.messages.push({
       role: "assistant",
       content: aiResponse,
@@ -252,16 +286,25 @@ async function generateAIResponse(
   }
 }
 
-// ... (rest of your code remains the same - webhook, health check, etc.)
+// ===== HEALTH CHECK =====
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    service: "whatsapp-ai-bot",
+    activeConversations: conversations.size,
+    model: process.env.GROQ_MODEL,
+  });
+});
+
+// ===== WEBHOOK =====
 app.post("/webhook", async (req, res) => {
   try {
     const incomingMessage = req.body.Body?.trim();
     const phoneNumber = req.body.From;
     const messageSid = req.body.MessageSid;
 
-    console.log(
-      `\n📩 [${new Date().toISOString()}] Message from ${phoneNumber}:`,
-    );
+    console.log(`\n📩 [${new Date().toISOString()}] Message from ${phoneNumber}:`);
     console.log(`   "${incomingMessage}"`);
     console.log(`   SID: ${messageSid}`);
 
@@ -269,19 +312,14 @@ app.post("/webhook", async (req, res) => {
       throw new Error("Empty message received");
     }
 
-    // Generate AI response
     const aiResponse = await generateAIResponse(incomingMessage, phoneNumber);
 
-    // Create Twilio response
     const twiml = new MessagingResponse();
     twiml.message(aiResponse);
 
     console.log(`📤 Sending response to ${phoneNumber}:`);
-    console.log(
-      `   "${aiResponse.substring(0, 100)}${aiResponse.length > 100 ? "..." : ""}"`,
-    );
+    console.log(`   "${aiResponse.substring(0, 100)}${aiResponse.length > 100 ? "..." : ""}"`);
 
-    // Send response
     res.set("Content-Type", "text/xml");
     res.status(200).send(twiml.toString());
   } catch (error) {
@@ -294,9 +332,8 @@ app.post("/webhook", async (req, res) => {
     res.status(200).send(twiml.toString());
   }
 });
-/**
- * New endpoint to get all mentors
- */
+
+// ===== MENTOR ENDPOINTS =====
 app.get("/api/mentors", (req, res) => {
   res.json({
     count: mentors.length,
@@ -304,9 +341,6 @@ app.get("/api/mentors", (req, res) => {
   });
 });
 
-/**
- * New endpoint to get a specific mentor
- */
 app.get("/api/mentors/:id", (req, res) => {
   const mentor = mentors.find(m => m.id === parseInt(req.params.id));
   if (!mentor) {
@@ -315,7 +349,71 @@ app.get("/api/mentors/:id", (req, res) => {
   res.json(mentor);
 });
 
-// Start server
+// ===== CONVERSATION ENDPOINTS =====
+app.get("/conversations/:phoneNumber", (req, res) => {
+  const phoneNumber = req.params.phoneNumber;
+  const conversation = conversations.get(phoneNumber);
+
+  if (!conversation) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+
+  res.json({
+    phoneNumber: conversation.phoneNumber,
+    lastActivity: conversation.lastActivity,
+    messageCount: conversation.messages.length,
+    messages: conversation.messages.map((m) => ({
+      role: m.role,
+      content: m.content.substring(0, 100) + (m.content.length > 100 ? "..." : ""),
+      timestamp: m.timestamp,
+    })),
+  });
+});
+
+app.post("/send-message", async (req, res) => {
+  try {
+    const { to, message } = req.body;
+
+    if (!to || !message) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const result = await twilioClient.messages.create({
+      from: process.env.TWILIO_SANDBOX_NUMBER || "whatsapp:+14155238886",
+      to: `whatsapp:${to}`,
+      body: message,
+    });
+
+    res.json({
+      success: true,
+      messageSid: result.sid,
+    });
+  } catch (error) {
+    console.error("Error sending message:", error);
+    res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+app.delete("/conversations/:phoneNumber", (req, res) => {
+  const phoneNumber = req.params.phoneNumber;
+  const deleted = conversations.delete(phoneNumber);
+
+  res.json({
+    success: deleted,
+    message: deleted ? "Conversation cleared" : "Conversation not found",
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    message: "Route not found",
+    path: req.path,
+    method: req.method
+  });
+});
+
+// ===== START SERVER =====
 const PORT = process.env.PORT || 4000;
 app.listen(4000, "0.0.0.0", () => {
   console.log(`\n🚀 WhatsApp AI Bot is running!`);
@@ -323,16 +421,13 @@ app.listen(4000, "0.0.0.0", () => {
   console.log(`🤖 AI Model: ${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"}`);
   console.log(`👥 Mentors available: ${mentors.length}`);
   console.log(`\n📖 Endpoints:`);
-  console.log(`   POST /webhook - Twilio webhook for incoming messages`);
+  console.log(`   POST /webhook - Twilio webhook`);
   console.log(`   GET  /health - Health check`);
-  console.log(`   GET  /api/mentors - Get all mentors`);
-  console.log(`   GET  /api/mentors/:id - Get specific mentor`);
-  console.log(`   GET  /conversations/:phone - View conversation history`);
-  console.log(`   POST /send-message - Send proactive message`);
-  console.log(`   DELETE /conversations/:phone - Clear conversation`);
-  console.log(`\n🌐 Public URL (for Twilio webhook):`);
-  console.log(`   https://your-ngrok-url.ngrok.io/webhook`);
-  console.log(
-    `\n💬 Test by sending a WhatsApp message to your sandbox number!\n`,
-  );
+  console.log(`   GET  /api/mentors - All mentors`);
+  console.log(`   GET  /api/mentors/:id - Specific mentor`);
+  console.log(`   GET  /conversations/:phone - View history`);
+  console.log(`   POST /send-message - Send message`);
+  console.log(`   DELETE /conversations/:phone - Clear history`);
+  console.log(`   GET  /api-docs - Swagger UI`);
+  console.log(`\n📚 Swagger UI: http://localhost:${PORT}/api-docs`);
 });
