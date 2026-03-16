@@ -3,11 +3,26 @@
   "controllerPathGlobs": ["src/**/*.ts"],
   "spec": {
     "outputDirectory": "dist",
-    "specVersion": 3
+    "specVersion": 3,
+    "basePath": "/api",
+    "securityDefinitions": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
   },
   "routes": {
     "routesDir": "dist",
     "esm": true,
-    "module": "esnext"
+    "module": "esnext",
+    "authenticationModule": "./src/auth/authentication.ts",
+    "multerOpts": {
+      "limits": {
+        "fileSize": 500000000,
+        "files": 1
+      },
+      "fileFilter": null
+    }
   }
 }

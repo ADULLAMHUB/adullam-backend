@@ -23,12 +23,16 @@ model User {
   firstName    String
   lastName     String
   phoneNumber  String
+  password     String
   organization String?
+  token        String?
   belief       String?
-  email        String?        @unique
+  email        String         @unique
+  isOnline     Boolean
   role         Role
   notification Notification[]
   createdAt    DateTime       @default(now())
+  lastActive   DateTime?
   updatedAt    DateTime?
 }
 
