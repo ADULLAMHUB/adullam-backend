@@ -4,14 +4,19 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsoa spec-and-routes && tsc",
-    "start": "node build/src/index.js",
-    "dev": "npx concurrently \"tsoa spec-and-routes --watch\" \"tsc --watch\" \"npx nodemon dist/src/index.js\""
+    "postinstall": "npx prisma generate",
+    "build": "npx tsoa routes && npx tsoa spec && npx tsc --skipLibCheck --noEmitOnError false",
+    "start": "node dist/src/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "tsoa:routes": "tsoa routes",
+    "tsoa:spec": "tsoa spec",
+    "prisma:generate": "npx prisma generate",
+    "prisma:push": "npx prisma db push",
+    "render-build": "npm install && npm run build"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -34,6 +39,7 @@
     "groq-sdk": "^1.1.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "ts-node-dev": "^2.0.0",
     "tsoa": "^7.0.0-alpha.0",
     "twilio": "^5.12.2"
   }
