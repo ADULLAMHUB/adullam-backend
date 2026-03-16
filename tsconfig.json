@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "rootDir": "./",         // Change from "./src" to "./" to allow dist
+    "outDir": "./dist",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "dist/routes.ts"], // Explicitly include the generated file
+  "exclude": ["node_modules"]
+}
