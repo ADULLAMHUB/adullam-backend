@@ -36,7 +36,7 @@ app.use((0, cors_1.default)({
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
 }));
 // Handle preflight requests
-app.options('*', (0, cors_1.default)());
+app.use((0, cors_1.default)());
 // ===== MIDDLEWARE =====
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
@@ -267,67 +267,6 @@ app.post("/webhook", async (req, res) => {
         res.set("Content-Type", "text/xml");
         res.status(200).send(twiml.toString());
     }
-});
-// ===== MENTOR ENDPOINTS =====
-app.get("/api/mentors", (req, res) => {
-    res.json({
-        count: mentors.length,
-        mentors: mentors
-    });
-});
-app.get("/api/mentors/:id", (req, res) => {
-    const mentor = mentors.find(m => m.id === parseInt(req.params.id));
-    if (!mentor) {
-        return res.status(404).json({ error: "Mentor not found" });
-    }
-    res.json(mentor);
-});
-// ===== CONVERSATION ENDPOINTS =====
-app.get("/conversations/:phoneNumber", (req, res) => {
-    const phoneNumber = req.params.phoneNumber;
-    const conversation = conversations.get(phoneNumber);
-    if (!conversation) {
-        return res.status(404).json({ error: "Conversation not found" });
-    }
-    res.json({
-        phoneNumber: conversation.phoneNumber,
-        lastActivity: conversation.lastActivity,
-        messageCount: conversation.messages.length,
-        messages: conversation.messages.map((m) => ({
-            role: m.role,
-            content: m.content.substring(0, 100) + (m.content.length > 100 ? "..." : ""),
-            timestamp: m.timestamp,
-        })),
-    });
-});
-app.post("/send-message", async (req, res) => {
-    try {
-        const { to, message } = req.body;
-        if (!to || !message) {
-            return res.status(400).json({ error: "Missing required fields" });
-        }
-        const result = await twilioClient.messages.create({
-            from: process.env.TWILIO_SANDBOX_NUMBER || "whatsapp:+14155238886",
-            to: `whatsapp:${to}`,
-            body: message,
-        });
-        res.json({
-            success: true,
-            messageSid: result.sid,
-        });
-    }
-    catch (error) {
-        console.error("Error sending message:", error);
-        res.status(500).json({ error: "Failed to send message" });
-    }
-});
-app.delete("/conversations/:phoneNumber", (req, res) => {
-    const phoneNumber = req.params.phoneNumber;
-    const deleted = conversations.delete(phoneNumber);
-    res.json({
-        success: deleted,
-        message: deleted ? "Conversation cleared" : "Conversation not found",
-    });
 });
 // 404 handler
 app.use((req, res) => {
