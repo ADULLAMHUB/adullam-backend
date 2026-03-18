@@ -12,7 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UsersController = void 0;
 const tsoa_1 = require("tsoa");
 let UsersController = class UsersController extends tsoa_1.Controller {
-    static async Health() {
+    async Health() {
         return {
             message: 'Health'
         };
@@ -24,7 +24,7 @@ __decorate([
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
-], UsersController, "Health", null);
+], UsersController.prototype, "Health", null);
 exports.UsersController = UsersController = __decorate([
     (0, tsoa_1.Route)("adullam"),
     (0, tsoa_1.Tags)("Adullam")

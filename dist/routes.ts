@@ -36,7 +36,7 @@ export function RegisterRoutes(app: Router) {
         };
         app.get('/adullam/health',
             ...(fetchMiddlewares<RequestHandler>(UsersController)),
-            ...(fetchMiddlewares<RequestHandler>(UsersController.Health)),
+            ...(fetchMiddlewares<RequestHandler>(UsersController.prototype.Health)),
 
             async function UsersController_Health(request: ExRequest, response: ExResponse, next: any) {
 
