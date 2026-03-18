@@ -48,7 +48,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defineExtension = exports.NullsOrder = exports.QueryMode = exports.SortOrder = exports.NotificationScalarFieldEnum = exports.UserScalarFieldEnum = exports.TransactionIsolationLevel = exports.ModelName = exports.AnyNull = exports.JsonNull = exports.DbNull = exports.NullTypes = exports.prismaVersion = exports.getExtensionContext = exports.Decimal = exports.Sql = exports.raw = exports.join = exports.empty = exports.sql = exports.PrismaClientValidationError = exports.PrismaClientInitializationError = exports.PrismaClientRustPanicError = exports.PrismaClientUnknownRequestError = exports.PrismaClientKnownRequestError = void 0;
+exports.defineExtension = exports.JsonNullValueFilter = exports.NullsOrder = exports.QueryMode = exports.NullableJsonNullValueInput = exports.JsonNullValueInput = exports.SortOrder = exports.AIInteractionScalarFieldEnum = exports.NotificationScalarFieldEnum = exports.ConnectionScalarFieldEnum = exports.UserScalarFieldEnum = exports.TransactionIsolationLevel = exports.ModelName = exports.AnyNull = exports.JsonNull = exports.DbNull = exports.NullTypes = exports.prismaVersion = exports.getExtensionContext = exports.Decimal = exports.Sql = exports.raw = exports.join = exports.empty = exports.sql = exports.PrismaClientValidationError = exports.PrismaClientInitializationError = exports.PrismaClientRustPanicError = exports.PrismaClientUnknownRequestError = exports.PrismaClientKnownRequestError = void 0;
 const runtime = __importStar(require("@prisma/client/runtime/client"));
 /**
  * Prisma Errors
@@ -104,7 +104,9 @@ exports.JsonNull = runtime.JsonNull;
 exports.AnyNull = runtime.AnyNull;
 exports.ModelName = {
     User: 'User',
-    Notification: 'Notification'
+    Connection: 'Connection',
+    Notification: 'Notification',
+    AIInteraction: 'AIInteraction'
 };
 /**
  * Enums
@@ -117,6 +119,7 @@ exports.TransactionIsolationLevel = runtime.makeStrictEnum({
 });
 exports.UserScalarFieldEnum = {
     id: 'id',
+    email: 'email',
     firstName: 'firstName',
     lastName: 'lastName',
     phoneNumber: 'phoneNumber',
@@ -124,11 +127,22 @@ exports.UserScalarFieldEnum = {
     organization: 'organization',
     token: 'token',
     belief: 'belief',
-    email: 'email',
     isOnline: 'isOnline',
     role: 'role',
+    mentorId: 'mentorId',
     createdAt: 'createdAt',
     lastActive: 'lastActive',
+    updatedAt: 'updatedAt'
+};
+exports.ConnectionScalarFieldEnum = {
+    id: 'id',
+    mentorId: 'mentorId',
+    menteeId: 'menteeId',
+    status: 'status',
+    message: 'message',
+    startedAt: 'startedAt',
+    endedAt: 'endedAt',
+    createdAt: 'createdAt',
     updatedAt: 'updatedAt'
 };
 exports.NotificationScalarFieldEnum = {
@@ -136,11 +150,29 @@ exports.NotificationScalarFieldEnum = {
     message: 'message',
     type: 'type',
     to: 'to',
-    userId: 'userId'
+    userId: 'userId',
+    read: 'read',
+    createdAt: 'createdAt'
+};
+exports.AIInteractionScalarFieldEnum = {
+    id: 'id',
+    userId: 'userId',
+    action: 'action',
+    parameters: 'parameters',
+    result: 'result',
+    status: 'status',
+    createdAt: 'createdAt'
 };
 exports.SortOrder = {
     asc: 'asc',
     desc: 'desc'
+};
+exports.JsonNullValueInput = {
+    JsonNull: exports.JsonNull
+};
+exports.NullableJsonNullValueInput = {
+    DbNull: exports.DbNull,
+    JsonNull: exports.JsonNull
 };
 exports.QueryMode = {
     default: 'default',
@@ -149,5 +181,10 @@ exports.QueryMode = {
 exports.NullsOrder = {
     first: 'first',
     last: 'last'
+};
+exports.JsonNullValueFilter = {
+    DbNull: exports.DbNull,
+    JsonNull: exports.JsonNull,
+    AnyNull: exports.AnyNull
 };
 exports.defineExtension = runtime.Extensions.defineExtension;

@@ -9,8 +9,15 @@
 * 🟢 You can import this file directly.
 */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Role = void 0;
+exports.ConnectionStatus = exports.Role = void 0;
 exports.Role = {
     USER: 'USER',
-    MENTOR: 'MENTOR'
+    MENTOR: 'MENTOR',
+    ADMIN: 'ADMIN'
+};
+exports.ConnectionStatus = {
+    PENDING: 'PENDING',
+    ACTIVE: 'ACTIVE',
+    COMPLETED: 'COMPLETED',
+    REJECTED: 'REJECTED'
 };
