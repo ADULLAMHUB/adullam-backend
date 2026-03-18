@@ -5,7 +5,7 @@ import twilio from "twilio";
 const MessagingResponse = twilio.twiml.MessagingResponse;
 import Groq from "groq-sdk";
 import swaggerUi from "swagger-ui-express";
-
+import {aiFunctions } from '../ai-functions'
 const swaggerDocument = require("../dist/swagger.json");
 import prisma from "./db";
 
@@ -364,8 +364,38 @@ You can help users connect with mentors. If they want to connect with someone, g
       temperature: 0.7,
       max_tokens: 500,
       top_p: 1,
+      functions: aiFunctions,
+      function_call: 'auto',
       stream: false,
     });
+
+    const responseMessage = completion.choices[0].message;
+
+// Check if AI wants to call a function
+if (responseMessage.function_call) {
+  const { name, arguments: args } = responseMessage.function_call;
+  const parsedArgs = JSON.parse(args);
+  
+  console.log(`🔧 AI calling function: ${name}`, parsedArgs);
+  
+  // Handle different functions
+  if (name === "create_user") {
+    // Update user with their name and interest
+    const user = await prisma.user.update({
+      where: { phoneNumber: phoneNumber.replace('whatsapp:', '') },
+      data: {
+        firstName: parsedArgs.first_name,
+        belief: parsedArgs.area_of_interest || null,
+      }
+    });
+    
+    return `Great ${parsedArgs.first_name}! I've updated your profile. A mentor will connect with you soon about ${parsedArgs.area_of_interest || 'your interests'}.`;
+  }
+  
+  if (name === "connect_to_mentor") {
+    return await connectToMentor(phoneNumber, parsedArgs.mentor_name);
+  }
+}
 
     const aiResponse = completion.choices[0]?.message?.content ||
       "I'm sorry, I couldn't generate a response. Please try again.";
@@ -400,21 +430,17 @@ You can help users connect with mentors. If they want to connect with someone, g
 
 // System prompt
 const SYSTEM_PROMPT = `You are a helpful WhatsApp assistant for Adullam Hub, a spiritual community.
-You are friendly, concise, and professional. Keep responses under 3 sentences unless the user asks for detailed information.
 
-You can help users:
-1. Find and connect with mentors
-2. Get spiritual guidance
-3. Learn about the community
+IMPORTANT: You have functions available to help users:
+- create_user: When someone wants to sign up or create an account
+- connect_to_mentor: When someone wants to connect with a specific mentor
 
-When users ask about mentors:
-1. Ask what area they need help with (spiritual growth, life advice, etc.)
-2. Find relevant mentors based on their needs
-3. Offer to connect them with the right mentor
+When users say things like "sign me up", "create account", "I want to join", "register me":
+1. Use the create_user function
+2. Ask for their name if you don't have it
+3. Ask what area they need guidance in
 
-Always be warm, welcoming, and point people to spiritual growth.
-
-If you don't know something, be honest and offer to connect them with a human.`;
+Always be warm, welcoming, and use the available functions to actually help users, not just talk about helping them.`;
 
 // ===== API ENDPOINTS =====
 

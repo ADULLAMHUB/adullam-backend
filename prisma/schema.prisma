@@ -28,7 +28,7 @@ model User {
   email        String?        @unique
   firstName    String?
   lastName     String?
-  phoneNumber  String?
+  phoneNumber  String? @unique
   password     String?        // Will be hashed
   organization String?
   token        String?        // For reset password, etc.
