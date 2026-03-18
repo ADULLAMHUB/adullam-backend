@@ -5,7 +5,8 @@ import twilio from "twilio";
 const MessagingResponse = twilio.twiml.MessagingResponse;
 import Groq from "groq-sdk";
 import swaggerUi from "swagger-ui-express";
-import swaggerDocument from "../dist/swagger.json";
+
+const swaggerDocument = require("../dist/swagger.json");
 import prisma from "./db";
 
 const app = express();
