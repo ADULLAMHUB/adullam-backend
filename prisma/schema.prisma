@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -16,33 +13,103 @@ datasource db {
 enum Role {
   USER
   MENTOR
+  ADMIN // Added for completeness
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  REJECTED
 }
 
 model User {
   id           String         @id @default(uuid())
-  firstName    String
-  lastName     String
-  phoneNumber  String
-  password     String
+  email        String?        @unique
+  firstName    String?
+  lastName     String?
+  phoneNumber  String?
+  password     String?        // Will be hashed
   organization String?
-  token        String?
+  token        String?        // For reset password, etc.
   belief       String?
-  email        String         @unique
-  isOnline     Boolean
-  role         Role
-  notification Notification[]
+  isOnline     Boolean?       @default(false)
+  role         Role?          @default(USER)
+  
+  // Mentor-Mentee Relationships
+  mentorId     String?
+  mentor       User?          @relation("MentorRelations", fields: [mentorId], references: [id])
+  mentees      User[]         @relation("MentorRelations")
+  
+  // Connections (alternative approach for more flexibility)
+  sentConnections   Connection[] @relation("SentConnections")
+  receivedConnections Connection[] @relation("ReceivedConnections")
+  
+  // Notifications
+  notifications Notification[]
+  
+  // AI Interaction Logs
+  aiInteractions AIInteraction[]
+  
+  // Timestamps
   createdAt    DateTime       @default(now())
   lastActive   DateTime?
-  updatedAt    DateTime?
+  updatedAt    DateTime?      @updatedAt
+
+  @@index([role])
+  @@index([mentorId])
+}
+
+// New model for flexible mentor-mentee connections
+model Connection {
+  id          String           @id @default(uuid())
+  mentorId    String
+  menteeId    String
+  status      ConnectionStatus @default(PENDING)
+  message     String?          // Optional message from mentee
+  
+  // Relations
+  mentor      User             @relation("SentConnections", fields: [mentorId], references: [id])
+  mentee      User             @relation("ReceivedConnections", fields: [menteeId], references: [id])
+  
+  // Metadata
+  startedAt   DateTime         @default(now())
+  endedAt     DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime?        @updatedAt
+
+  @@unique([mentorId, menteeId])
+  @@index([mentorId])
+  @@index([menteeId])
+  @@index([status])
 }
 
 model Notification {
-  id      String @id @default(uuid())
-  message String
-  type    String
-  to      Role
-  userId  String
-  user    User   @relation(fields: [userId], references: [id])
+  id        String   @id @default(uuid())
+  message   String
+  type      String   // e.g., 'CONNECTION_REQUEST', 'MESSAGE', 'REMINDER'
+  to        Role?    // Can be null if sent to specific user
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 
-  @@index([to, userId])
+  @@index([userId, read])
+  @@index([to])
+}
+
+// New model to track AI interactions for better context
+model AIInteraction {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  action      String   // 'CREATE_USER', 'CONNECT_MENTOR', 'FIND_MENTORS', etc.
+  parameters  Json     // Store the parameters used
+  result      Json?    // Store the result
+  status      String   // 'SUCCESS', 'FAILED'
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }

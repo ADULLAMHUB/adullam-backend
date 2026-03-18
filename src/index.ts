@@ -5,7 +5,8 @@ import twilio from "twilio";
 const MessagingResponse = twilio.twiml.MessagingResponse;
 import Groq from "groq-sdk";
 import swaggerUi from "swagger-ui-express";
-import swaggerDocument from "../dist/swagger.json"; // Make sure this path is correct
+import swaggerDocument from "../dist/swagger.json";
+import prisma from "./db";
 
 const app = express();
 
@@ -20,9 +21,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, postman, twilio)
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.indexOf(origin) === -1) {
       console.log(`❌ Blocked origin: ${origin}`);
       return callback(new Error('CORS not allowed'), false);
@@ -34,7 +33,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin']
 }));
 
-// Handle preflight requests
 app.use(cors());
 
 // ===== MIDDLEWARE =====
@@ -48,12 +46,10 @@ app.use((req, res, next) => {
 });
 
 // ===== SWAGGER DOCS =====
-// Serve swagger.json statically
 app.use('/api-docs/swagger.json', (req, res) => {
   res.sendFile(__dirname + '/swagger.json');
 });
 
-// Setup swagger UI
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
   customCss: '.swagger-ui .topbar { display: none }',
   customSiteTitle: "Adullam Hub WhatsApp Bot API",
@@ -76,189 +72,293 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN!,
 );
 
-// In-memory conversation history
-interface Conversation {
-  phoneNumber: string;
-  messages: Array<{
-    role: "user" | "assistant" | "system";
-    content: string;
-    timestamp: Date;
-  }>;
-  lastActivity: Date;
-}
-
-const conversations: Map<string, Conversation> = new Map();
-
-// Enhanced mentors array
-const mentors = [
-  { 
-    id: 1, 
-    name: "Pastor Adebisis Ikotun", 
-    title: "Lead Teens Pastor",
-    expertise: ["Youth mentorship", "Spiritual guidance", "Teen counseling"],
-    bio: "Experienced in guiding teenagers through spiritual and life challenges"
-  },
-  { 
-    id: 2, 
-    name: "Femi Lazarus", 
-    title: "Pastor",
-    expertise: ["Biblical teaching", "Marriage counseling", "Leadership"],
-    bio: "Passionate about teaching scripture and building strong relationships"
-  },
-  { 
-    id: 3, 
-    name: "Joshua Selman", 
-    title: "Evangelist",
-    expertise: ["Evangelism", "Spiritual growth", "Prayer ministry"],
-    bio: "Dedicated to spreading the gospel and spiritual development"
-  },
-];
-
-// System prompt
-const SYSTEM_PROMPT = `You are a helpful WhatsApp assistant for Adullam Hub, a spiritual community.
-You are friendly, concise, and professional. Keep responses under 3 sentences unless the user asks for detailed information.
-
-Here is our list of mentors available at Adullam Hub:
-${mentors.map(m => `- ${m.name} (${m.title}): ${m.bio}`).join('\n')}
-
-When users ask about mentors, spiritual guidance, or counseling:
-1. If they ask generally about mentors, list all available mentors
-2. If they ask about a specific mentor by name, provide that person's details
-3. If they mention an area of interest (teens, marriage, evangelism), suggest relevant mentors
-4. Always offer to connect them with the appropriate mentor
-
-Remember to be warm, welcoming, and always point people to spiritual growth.
-
-If you don't know something, be honest and offer to connect them with a human.`;
+// ===== DATABASE FUNCTIONS =====
 
 /**
- * Search for mentors based on user query
+ * Get or create a user from phone number
  */
-function searchMentors(query: string): string {
+async function getOrCreateUser(phoneNumber: string) {
+  try {
+    // Clean phone number (remove whatsapp: prefix if present)
+    const cleanPhone = phoneNumber.replace('whatsapp:', '');
+    
+    let user = await prisma.user.findFirst({
+      where: { phoneNumber: cleanPhone },
+      include: {
+        mentor: true,
+        mentees: true,
+        sentConnections: {
+          include: { mentee: true }
+        },
+        receivedConnections: {
+          include: { mentor: true }
+        }
+      }
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          phoneNumber: cleanPhone,
+          role: 'USER',
+        },
+        include: {
+          mentor: true,
+          mentees: true,
+          sentConnections: {
+            include: { mentee: true }
+          },
+          receivedConnections: {
+            include: { mentor: true }
+          }
+        }
+      });
+      
+      console.log(`✅ Created new user: ${cleanPhone}`);
+    }
+
+    return user;
+  } catch (error) {
+    console.error("❌ Error in getOrCreateUser:", error);
+    throw error;
+  }
+}
+
+/**
+ * Log AI interaction
+ */
+async function logAIInteraction(userId: string, action: string, parameters: any, result: any, status: string) {
+  try {
+    await prisma.aIInteraction.create({
+      data: {
+        userId,
+        action,
+        parameters,
+        result,
+        status,
+      }
+    });
+  } catch (error) {
+    console.error("❌ Error logging AI interaction:", error);
+  }
+}
+
+/**
+ * Search for mentors in database
+ */
+async function searchMentors(query: string, userId?: string) {
   const lowercaseQuery = query.toLowerCase();
   
-  // Check if asking for all mentors
-  const listKeywords = ['list', 'all', 'who are', 'mentors available', 'show me'];
-  const wantsAllMentors = listKeywords.some(keyword => lowercaseQuery.includes(keyword));
-  
-  if (wantsAllMentors) {
-    let response = "*Here are our mentors at Adullam Hub:*\n\n";
-    mentors.forEach((m, index) => {
-      response += `${index + 1}. *${m.name}* - ${m.title}\n   📌 ${m.bio}\n   ✨ Expertise: ${m.expertise.join(", ")}\n\n`;
+  // Search mentors in database
+  const mentors = await prisma.user.findMany({
+    where: {
+      role: 'MENTOR',
+      OR: [
+        { firstName: { contains: lowercaseQuery, mode: 'insensitive' } },
+        { lastName: { contains: lowercaseQuery, mode: 'insensitive' } },
+        { organization: { contains: lowercaseQuery, mode: 'insensitive' } },
+        { belief: { contains: lowercaseQuery, mode: 'insensitive' } },
+      ]
+    },
+    include: {
+      mentees: true
+    }
+  });
+
+  // If no mentors found with query, return all
+  if (mentors.length === 0 && lowercaseQuery.includes('mentor')) {
+    const allMentors = await prisma.user.findMany({
+      where: { role: 'MENTOR' },
+      include: {
+        mentees: true
+      }
     });
-    response += "_Would you like more information about any specific mentor?_";
+    
+    if (allMentors.length === 0) {
+      return "I don't see any mentors available at the moment. Please check back later.";
+    }
+
+    let response = "*Here are our mentors at Adullam Hub:*\n\n";
+    allMentors.forEach((m, index) => {
+      response += `${index + 1}. *${m.firstName} ${m.lastName || ''}*\n`;
+      if (m.organization) response += `   📌 ${m.organization}\n`;
+      if (m.belief) response += `   ✨ ${m.belief}\n`;
+      response += `   👥 Currently mentoring: ${m.mentees.length} people\n\n`;
+    });
+    response += "_Would you like to connect with any of these mentors?_";
     return response;
   }
-  
-  // Search by name
-  const nameMatch = mentors.find(m => 
-    m.name.toLowerCase().includes(lowercaseQuery) ||
-    lowercaseQuery.includes(m.name.toLowerCase().split(' ')[0])
-  );
-  
-  if (nameMatch) {
-    return `*${nameMatch.name}* (${nameMatch.title})\n\n📌 ${nameMatch.bio}\n✨ Areas of expertise: ${nameMatch.expertise.join(", ")}\n\nWould you like to connect with ${nameMatch.name.split(' ')[0]}? I can help arrange a meeting.`;
-  }
-  
-  // Search by expertise
-  const expertiseMatches = mentors.filter(m =>
-    m.expertise.some(e => lowercaseQuery.includes(e.toLowerCase())) ||
-    lowercaseQuery.includes(m.title.toLowerCase())
-  );
-  
-  if (expertiseMatches.length > 0) {
-    if (expertiseMatches.length === 1) {
-      const m = expertiseMatches[0];
-      return `*${m.name}* specializes in this area. ${m.bio}\n\nWould you like to connect with them?`;
+
+  if (mentors.length > 0) {
+    if (mentors.length === 1) {
+      const m = mentors[0];
+      return `*${m.firstName} ${m.lastName || ''}*\n\n` +
+        `${m.organization ? `📌 ${m.organization}\n` : ''}` +
+        `${m.belief ? `✨ ${m.belief}\n` : ''}` +
+        `👥 Currently mentoring: ${m.mentees.length} people\n\n` +
+        `Would you like to connect with them?`;
     } else {
       let response = "*Several mentors can help with this:*\n\n";
-      expertiseMatches.forEach((m, index) => {
-        response += `${index + 1}. *${m.name}* - ${m.title}\n   ✨ ${m.expertise.join(", ")}\n`;
+      mentors.forEach((m, index) => {
+        response += `${index + 1}. *${m.firstName} ${m.lastName || ''}* - ${m.organization || 'Mentor'}\n`;
+        if (m.belief) response += `   ✨ ${m.belief}\n`;
       });
       response += "\n_Which mentor would you like to learn more about?_";
       return response;
     }
   }
-  
+
   return "";
 }
 
 /**
- * Generate AI response using Groq
+ * Connect mentee to mentor
+ */
+async function connectToMentor(menteePhone: string, mentorName: string) {
+  try {
+    // Find mentor by name
+    const mentor = await prisma.user.findFirst({
+      where: {
+        role: 'MENTOR',
+        OR: [
+          { firstName: { contains: mentorName, mode: 'insensitive' } },
+          { lastName: { contains: mentorName, mode: 'insensitive' } },
+        ]
+      }
+    });
+
+    if (!mentor) {
+      return "I couldn't find that mentor. Please check the name and try again.";
+    }
+
+    // Get mentee
+    const mentee = await prisma.user.findFirst({
+      where: { phoneNumber: menteePhone.replace('whatsapp:', '') }
+    });
+
+    if (!mentee) {
+      return "I couldn't find your account. Please try again.";
+    }
+
+    // Check if connection already exists
+    const existingConnection = await prisma.connection.findFirst({
+      where: {
+        mentorId: mentor.id,
+        menteeId: mentee.id,
+      }
+    });
+
+    if (existingConnection) {
+      return `You already have a ${existingConnection.status.toLowerCase()} connection with ${mentor.firstName}.`;
+    }
+
+    // Create connection
+    const connection = await prisma.connection.create({
+      data: {
+        mentorId: mentor.id,
+        menteeId: mentee.id,
+        status: 'PENDING',
+        message: `Connection requested via WhatsApp`,
+      }
+    });
+
+    // Create notification
+    await prisma.notification.create({
+      data: {
+        message: `${mentee.firstName || 'Someone'} wants to connect with you as a mentee`,
+        type: 'CONNECTION_REQUEST',
+        userId: mentor.id,
+      }
+    });
+
+    return `Great! I've sent a connection request to ${mentor.firstName}. They'll be notified and get back to you soon.`;
+  } catch (error) {
+    console.error("❌ Error connecting to mentor:", error);
+    return "Sorry, I had trouble connecting you to that mentor. Please try again.";
+  }
+}
+
+/**
+ * Generate AI response using Groq with database context
  */
 async function generateAIResponse(
   userMessage: string,
   phoneNumber: string,
 ): Promise<string> {
   try {
+    // Get or create user
+    const user = await getOrCreateUser(phoneNumber);
+
+    // Check if message is about connecting to a mentor
+    const connectKeywords = ['connect with', 'talk to', 'meet', 'contact'];
+    const wantsToConnect = connectKeywords.some(keyword => 
+      userMessage.toLowerCase().includes(keyword)
+    );
+
+    if (wantsToConnect) {
+      // Extract potential mentor name from message
+      const words = userMessage.split(' ');
+      const possibleName = words.slice(-2).join(' '); // Get last 2 words as potential name
+      
+      const connectResult = await connectToMentor(phoneNumber, possibleName);
+      
+      await logAIInteraction(
+        user.id,
+        'CONNECT_TO_MENTOR',
+        { mentorName: possibleName },
+        { success: !connectResult.includes("couldn't find") },
+        connectResult.includes("couldn't find") ? 'FAILED' : 'SUCCESS'
+      );
+      
+      return connectResult;
+    }
+
     // Check if message is about mentors
-    const mentorKeywords = ['mentor', 'pastor', 'counseling', 'guidance', 'spiritual', 'advice', 'help with', 'talk to'];
+    const mentorKeywords = ['mentor', 'pastor', 'counseling', 'guidance', 'spiritual', 'advice', 'help'];
     const isAboutMentors = mentorKeywords.some(keyword => 
       userMessage.toLowerCase().includes(keyword)
     );
     
-    // If it's about mentors, search first
     if (isAboutMentors) {
-      const mentorResponse = searchMentors(userMessage);
+      const mentorResponse = await searchMentors(userMessage, user.id);
       if (mentorResponse) {
-        let conversation = conversations.get(phoneNumber);
-        if (!conversation) {
-          conversation = {
-            phoneNumber,
-            messages: [],
-            lastActivity: new Date(),
-          };
-          conversations.set(phoneNumber, conversation);
-        }
-        
-        conversation.messages.push({
-          role: "user",
-          content: userMessage,
-          timestamp: new Date(),
-        });
-        
-        conversation.messages.push({
-          role: "assistant",
-          content: mentorResponse,
-          timestamp: new Date(),
-        });
-        
+        await logAIInteraction(
+          user.id,
+          'SEARCH_MENTORS',
+          { query: userMessage },
+          { responseLength: mentorResponse.length },
+          'SUCCESS'
+        );
         return mentorResponse;
       }
     }
 
-    // Get or create conversation history
-    let conversation = conversations.get(phoneNumber);
-
-    if (!conversation) {
-      conversation = {
-        phoneNumber,
-        messages: [],
-        lastActivity: new Date(),
-      };
-      conversations.set(phoneNumber, conversation);
-    }
-
-    conversation.messages.push({
-      role: "user",
-      content: userMessage,
-      timestamp: new Date(),
+    // Get recent interactions for context
+    const recentInteractions = await prisma.aIInteraction.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 5
     });
 
-    const recentMessages = conversation.messages.slice(-10);
+    // Build system prompt with user context
+    const contextualPrompt = `${SYSTEM_PROMPT}
+
+User Context:
+- Name: ${user.firstName || 'Not provided'}
+- Role: ${user.role}
+- Previous interactions: ${recentInteractions.length} times
+
+You can help users connect with mentors. If they want to connect with someone, guide them through the process.`;
 
     const groqMessages = [
-      { role: "system", content: SYSTEM_PROMPT },
-      ...recentMessages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      })),
-    ] as any;
+      { role: "system", content: contextualPrompt },
+      { role: "user", content: userMessage }
+    ];
 
     console.log(`🤔 Generating AI response for ${phoneNumber}...`);
 
     const completion = await groq.chat.completions.create({
-      messages: groqMessages,
+      messages: groqMessages as any,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       temperature: 0.7,
       max_tokens: 500,
@@ -269,32 +369,206 @@ async function generateAIResponse(
     const aiResponse = completion.choices[0]?.message?.content ||
       "I'm sorry, I couldn't generate a response. Please try again.";
 
-    conversation.messages.push({
-      role: "assistant",
-      content: aiResponse,
-      timestamp: new Date(),
-    });
-
-    conversation.lastActivity = new Date();
-
-    console.log(`✅ AI response generated (${aiResponse.length} chars)`);
+    await logAIInteraction(
+      user.id,
+      'CHAT',
+      { message: userMessage },
+      { response: aiResponse.substring(0, 100) },
+      'SUCCESS'
+    );
 
     return aiResponse;
   } catch (error) {
     console.error("❌ Groq API Error:", error);
+    
+    // Log error
+    try {
+      const user = await getOrCreateUser(phoneNumber);
+      await logAIInteraction(
+        user.id,
+        'ERROR',
+        { message: userMessage, error: String(error) },
+        null,
+        'FAILED'
+      );
+    } catch {}
+    
     return "I'm having trouble processing your request right now. Please try again in a moment.";
   }
 }
 
-// ===== HEALTH CHECK =====
-app.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    service: "whatsapp-ai-bot",
-    activeConversations: conversations.size,
-    model: process.env.GROQ_MODEL,
-  });
+// System prompt
+const SYSTEM_PROMPT = `You are a helpful WhatsApp assistant for Adullam Hub, a spiritual community.
+You are friendly, concise, and professional. Keep responses under 3 sentences unless the user asks for detailed information.
+
+You can help users:
+1. Find and connect with mentors
+2. Get spiritual guidance
+3. Learn about the community
+
+When users ask about mentors:
+1. Ask what area they need help with (spiritual growth, life advice, etc.)
+2. Find relevant mentors based on their needs
+3. Offer to connect them with the right mentor
+
+Always be warm, welcoming, and point people to spiritual growth.
+
+If you don't know something, be honest and offer to connect them with a human.`;
+
+// ===== API ENDPOINTS =====
+
+// Health check
+app.get("/health", async (req, res) => {
+  try {
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    
+    const userCount = await prisma.user.count();
+    const mentorCount = await prisma.user.count({ where: { role: 'MENTOR' } });
+    const connectionCount = await prisma.connection.count();
+    
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      service: "whatsapp-ai-bot",
+      database: "connected",
+      stats: {
+        users: userCount,
+        mentors: mentorCount,
+        connections: connectionCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "unhealthy",
+      error: "Database connection failed"
+    });
+  }
+});
+
+// Get all mentors
+app.get("/api/mentors", async (req, res) => {
+  try {
+    const mentors = await prisma.user.findMany({
+      where: { role: 'MENTOR' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        organization: true,
+        belief: true,
+        _count: {
+          select: { mentees: true }
+        }
+      }
+    });
+    
+    res.json(mentors);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch mentors" });
+  }
+});
+
+// Get specific mentor
+app.get("/api/mentors/:id", async (req, res) => {
+  try {
+    const mentor = await prisma.user.findFirst({
+      where: { 
+        id: req.params.id,
+        role: 'MENTOR'
+      },
+      include: {
+        mentees: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      }
+    });
+    
+    if (!mentor) {
+      return res.status(404).json({ error: "Mentor not found" });
+    }
+    
+    res.json(mentor);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch mentor" });
+  }
+});
+
+// Get user conversations history
+app.get("/conversations/:phone", async (req, res) => {
+  try {
+    const cleanPhone = req.params.phone.replace('whatsapp:', '');
+    
+    const user = await prisma.user.findFirst({
+      where: { phoneNumber: cleanPhone },
+      include: {
+        aiInteractions: {
+          orderBy: { createdAt: 'desc' },
+          take: 20
+        }
+      }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch conversations" });
+  }
+});
+
+// Send message (admin endpoint)
+app.post("/send-message", async (req, res) => {
+  try {
+    const { to, message } = req.body;
+    
+    if (!to || !message) {
+      return res.status(400).json({ error: "Missing to or message" });
+    }
+
+    const twiml = new MessagingResponse();
+    twiml.message(message);
+
+    // In production, you'd use twilioClient.messages.create
+    // For now, we'll just return the twiml
+    
+    res.json({ 
+      success: true, 
+      message: "Message sent",
+      to,
+      twiml: twiml.toString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+// Clear conversation history
+app.delete("/conversations/:phone", async (req, res) => {
+  try {
+    const cleanPhone = req.params.phone.replace('whatsapp:', '');
+    
+    const user = await prisma.user.findFirst({
+      where: { phoneNumber: cleanPhone }
+    });
+    
+    if (user) {
+      // Delete AI interactions (soft delete would be better in production)
+      await prisma.aIInteraction.deleteMany({
+        where: { userId: user.id }
+      });
+    }
+    
+    res.json({ success: true, message: "Conversation history cleared" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to clear history" });
+  }
 });
 
 // ===== WEBHOOK =====
@@ -333,7 +607,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
@@ -345,11 +618,21 @@ app.use((req, res) => {
 
 // ===== START SERVER =====
 const PORT = process.env.PORT || 4000;
-app.listen(4000, "0.0.0.0", () => {
+app.listen(4000, "0.0.0.0", async () => {
   console.log(`\n🚀 WhatsApp AI Bot is running!`);
   console.log(`📱 Port: ${PORT}`);
   console.log(`🤖 AI Model: ${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"}`);
-  console.log(`👥 Mentors available: ${mentors.length}`);
+  
+  try {
+    await prisma.$connect();
+    console.log(`✅ Database connected`);
+    
+    const mentorCount = await prisma.user.count({ where: { role: 'MENTOR' } });
+    console.log(`👥 Mentors in database: ${mentorCount}`);
+  } catch (error) {
+    console.log(`❌ Database connection failed`);
+  }
+  
   console.log(`\n📖 Endpoints:`);
   console.log(`   POST /webhook - Twilio webhook`);
   console.log(`   GET  /health - Health check`);
