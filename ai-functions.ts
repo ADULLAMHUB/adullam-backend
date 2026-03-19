@@ -24,7 +24,7 @@ export const aiFunctions = [
   {
     name: "connect_to_mentor",
     description: "Connect a user to a specific mentor by name.",
-    parameters: {
+    parameters: { 
       type: "object",
       properties: {
         mentor_name: { type: "string" }
