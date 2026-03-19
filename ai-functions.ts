@@ -1,60 +1,35 @@
-// lib/ai-functions.ts
 export const aiFunctions = [
   {
     name: "create_user",
-    description: "Create a new user (mentor or mentee) in the system",
+    description: "Register a new member name and spiritual interest.",
     parameters: {
       type: "object",
       properties: {
-        first_name: {
-          type: "string",
-          description: "The user's first name"
-        },
-        last_name: {
-          type: "string",
-          description: "The user's last name (optional)"
-        },
-        phone_number: {
-          type: "string",
-          description: "The user's phone number"
-        },
-        email: {
-          type: "string",
-          description: "The user's email address (optional)"
-        },
-        role: {
-          type: "string",
-          enum: ["mentor", "mentee"],
-          description: "Whether the user is a mentor or mentee"
-        }
+        first_name: { type: "string" },
+        area_of_interest: { type: "string", description: "e.g., healing, career, faith" }
       },
-      required: ["first_name", "phone_number", "role"]
+      required: ["first_name"]
+    }
+  },
+  {
+    name: "search_mentors",
+    description: "Find mentors based on a query.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
+      }
     }
   },
   {
     name: "connect_to_mentor",
-    description: "Connect a mentee to an existing mentor",
+    description: "Connect a user to a specific mentor by name.",
     parameters: {
       type: "object",
       properties: {
-        menteeId: {
-          type: "string",
-          description: "The ID of the mentee user"
-        },
-        mentorId: {
-          type: "string",
-          description: "The ID of the mentor user"
-        }
+        mentor_name: { type: "string" }
       },
-      required: ["menteeId", "mentorId"]
-    }
-  },
-  {
-    name: "find_mentors",
-    description: "Find available mentors in the system",
-    parameters: {
-      type: "object",
-      properties: {}, // No parameters needed
+      required: ["mentor_name"]
     }
   }
 ];
